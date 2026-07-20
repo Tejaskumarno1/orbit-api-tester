@@ -152,17 +152,23 @@ export default function createApp() {
   let webhookHistory: WebhookEvent[] = [];
   const sseClients = new Set<express.Response>();
 
-  app.get("/api/webhooks/tunnel", (req, res) => {
+  app.get(["/api/webhooks/tunnel", "/webhooks/tunnel"], (req, res) => {
     res.json({ active: !!tunnelProcess, url: tunnelUrl });
   });
 
-  app.post("/api/webhooks/tunnel", async (req, res) => {
+  app.post(["/api/webhooks/tunnel", "/webhooks/tunnel"], async (req, res) => {
     try {
       if (tunnelProcess) {
         return res.json({ active: true, url: tunnelUrl });
       }
 
-      const localtunnel = (await import("localtunnel")).default;
+      let localtunnel: any;
+      try {
+        localtunnel = (await import("localtunnel")).default;
+      } catch (e) {
+        return res.status(400).json({ error: "Public tunnel service is unavailable on serverless. Host mode is active." });
+      }
+
       const tunnel = await localtunnel({ port: 3000 });
       tunnelProcess = tunnel;
       tunnelUrl = tunnel.url;
@@ -179,7 +185,7 @@ export default function createApp() {
     }
   });
 
-  app.delete("/api/webhooks/tunnel", (req, res) => {
+  app.delete(["/api/webhooks/tunnel", "/webhooks/tunnel"], (req, res) => {
     if (tunnelProcess) {
       try {
         tunnelProcess.close();
@@ -190,12 +196,12 @@ export default function createApp() {
     res.json({ active: false, url: "" });
   });
 
-  app.get("/api/webhooks/endpoints", (req, res) => {
+  app.get(["/api/webhooks/endpoints", "/webhooks/endpoints"], (req, res) => {
     res.json(endpoints);
   });
 
-  app.post("/api/webhooks/endpoints", (req, res) => {
-    const { id, name, customPath, secretKey, responseStatus, responseDelay, responseBody, responseHeaders, chaosEnabled, chaosJitterMin, chaosJitterMax, chaosFailureRate, chaosRateLimit, relayTargets, jsonSchema } = req.body;
+  app.post(["/api/webhooks/endpoints", "/webhooks/endpoints"], (req, res) => {
+    const { id, name, customPath, secretKey, responseStatus, responseDelay, responseBody, responseHeaders, chaosEnabled, chaosJitterMin, chaosJitterMax, chaosFailureRate, chaosRateLimit, relayTargets, jsonSchema } = req.body || {};
     
     let endpoint = endpoints.find(e => e.id === id);
     if (!endpoint) {
@@ -237,7 +243,7 @@ export default function createApp() {
     res.json(endpoint);
   });
 
-  app.delete("/api/webhooks/endpoints/:id", (req, res) => {
+  app.delete(["/api/webhooks/endpoints/:id", "/webhooks/endpoints/:id"], (req, res) => {
     const { id } = req.params;
     if (id === "default") {
       return res.status(400).json({ error: "Cannot delete default endpoint" });
@@ -246,16 +252,16 @@ export default function createApp() {
     res.json({ success: true });
   });
 
-  app.get("/api/webhooks/history", (req, res) => {
+  app.get(["/api/webhooks/history", "/webhooks/history"], (req, res) => {
     res.json(webhookHistory);
   });
 
-  app.post("/api/webhooks/clear", (req, res) => {
+  app.post(["/api/webhooks/clear", "/webhooks/clear"], (req, res) => {
     webhookHistory = [];
     res.json({ success: true, message: "Webhook history cleared" });
   });
 
-  app.get("/api/webhooks/stream", (req, res) => {
+  app.get(["/api/webhooks/stream", "/webhooks/stream"], (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
@@ -443,11 +449,11 @@ export default function createApp() {
     res.status(effectiveStatus).send(effectiveBody);
   }
 
-  app.all("/api/webhooks/catch", handleWebhookCatch);
-  app.all("/api/webhooks/catch/*", handleWebhookCatch);
+  app.all(["/api/webhooks/catch", "/webhooks/catch"], handleWebhookCatch);
+  app.all(["/api/webhooks/catch/*", "/webhooks/catch/*"], handleWebhookCatch);
 
   // CORS Proxy for external API requests
-  app.post("/api/proxy", async (req, res) => {
+  const handleProxyRequest = async (req: express.Request, res: express.Response) => {
     try {
       let reqPayload = req.body;
       if (typeof reqPayload === 'string') {
@@ -519,7 +525,9 @@ export default function createApp() {
         message: error.message || String(error),
       });
     }
-  });
+  };
+
+  app.post(["/api/proxy", "/proxy"], handleProxyRequest);
 
   return app;
 }
