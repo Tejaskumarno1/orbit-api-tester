@@ -18,19 +18,25 @@ export default function createApp() {
   // Verification hook to extract and preserve raw body for all content types
   app.use(express.json({
     verify: (req: any, res, buf) => {
-      req.rawBody = buf.toString("utf8");
+      if (buf && Buffer.isBuffer(buf)) {
+        req.rawBody = buf.toString("utf8");
+      }
     }
   }));
   app.use(express.urlencoded({
     extended: true,
     verify: (req: any, res, buf) => {
-      req.rawBody = buf.toString("utf8");
+      if (buf && Buffer.isBuffer(buf)) {
+        req.rawBody = buf.toString("utf8");
+      }
     }
   }));
   app.use(express.text({
     type: "*/*",
     verify: (req: any, res, buf) => {
-      req.rawBody = buf.toString("utf8");
+      if (buf && Buffer.isBuffer(buf)) {
+        req.rawBody = buf.toString("utf8");
+      }
     }
   }));
 
