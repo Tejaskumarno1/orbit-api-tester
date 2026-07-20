@@ -443,9 +443,19 @@ export default function createApp() {
   // CORS Proxy for external API requests
   app.post("/api/proxy", async (req, res) => {
     try {
-      const { url, method, headers, body } = req.body;
-      if (!url) {
-        return res.status(400).json({ error: "Missing 'url' parameter" });
+      let reqPayload = req.body;
+      if (typeof reqPayload === 'string') {
+        try {
+          reqPayload = JSON.parse(reqPayload);
+        } catch (e) {
+          reqPayload = {};
+        }
+      }
+      reqPayload = reqPayload || {};
+
+      const { url, method, headers, body } = reqPayload;
+      if (!url || typeof url !== 'string') {
+        return res.status(400).json({ error: "Missing or invalid 'url' parameter" });
       }
 
       const clientUserAgent = (req.headers["user-agent"] as string) || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -453,16 +463,25 @@ export default function createApp() {
       const outgoingHeaders: Record<string, string> = {
         "User-Agent": clientUserAgent,
         "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        ...(headers || {})
       };
 
+      if (headers && typeof headers === 'object') {
+        Object.entries(headers).forEach(([k, v]) => {
+          if (!k || typeof k !== 'string') return;
+          const lowerK = k.toLowerCase();
+          if (['host', 'content-length', 'connection', 'accept-encoding'].includes(lowerK)) return;
+          if (v !== undefined && v !== null) {
+            outgoingHeaders[k] = String(v);
+          }
+        });
+      }
+
       const fetchOptions: RequestInit = {
-        method: method || "GET",
+        method: (method || "GET").toUpperCase(),
         headers: outgoingHeaders,
       };
 
-      if (body && (method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE")) {
+      if (body && (fetchOptions.method === "POST" || fetchOptions.method === "PUT" || fetchOptions.method === "PATCH" || fetchOptions.method === "DELETE")) {
         fetchOptions.body = typeof body === "string" ? body : JSON.stringify(body);
       }
 
