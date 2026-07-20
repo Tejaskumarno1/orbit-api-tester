@@ -448,9 +448,18 @@ export default function createApp() {
         return res.status(400).json({ error: "Missing 'url' parameter" });
       }
 
+      const clientUserAgent = (req.headers["user-agent"] as string) || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+      
+      const outgoingHeaders: Record<string, string> = {
+        "User-Agent": clientUserAgent,
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        ...(headers || {})
+      };
+
       const fetchOptions: RequestInit = {
         method: method || "GET",
-        headers: headers || {},
+        headers: outgoingHeaders,
       };
 
       if (body && (method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE")) {
