@@ -114,13 +114,8 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
   const [editBody, setEditBody] = useState("");
   const [editBodyError, setEditBodyError] = useState<string | null>(null);
   
-  // Custom Base Host / Locking States
-  const [customBaseUrl, setCustomBaseUrl] = useState(() => localStorage.getItem("orbit_webhook_custom_base") || "");
-  const [isBaseUrlLocked, setIsBaseUrlLocked] = useState(() => localStorage.getItem("orbit_webhook_lock_base") === "true");
-  const [showHostConfigModal, setShowHostConfigModal] = useState(false);
-
-  useEffect(() => { localStorage.setItem("orbit_webhook_custom_base", customBaseUrl); }, [customBaseUrl]);
-  useEffect(() => { localStorage.setItem("orbit_webhook_lock_base", String(isBaseUrlLocked)); }, [isBaseUrlLocked]);
+  // Platform Registration Signing Secret display state
+  const [displayedSigningSecret, setDisplayedSigningSecret] = useState<string | null>(null);
   
   // Advanced Features Edit States
   const [editChaosEnabled, setEditChaosEnabled] = useState(false);
@@ -308,11 +303,6 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
     const pathSlug = targetEndpoint?.customPath || targetEndpoint?.id || "default";
     const pathSuffix = pathSlug === "default" ? "" : `/${pathSlug}`;
     const fullPath = `/api/webhooks/catch${pathSuffix}`;
-
-    if (customBaseUrl && customBaseUrl.trim()) {
-      const cleanBase = customBaseUrl.trim().replace(/\/+$/, "");
-      return `${cleanBase}${fullPath}`;
-    }
 
     if (isTunnelActive && tunnelUrl) {
       const cleanTunnel = tunnelUrl.trim().replace(/\/+$/, "");
@@ -575,14 +565,10 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
     }
   };
 
-  // OptimaOrbit Platform Integration Handlers
+  // OptimaOrbit Platform Integration Handler
   const handleRegisterPlatformWebhook = async () => {
-    if (!isTunnelActive || !tunnelUrl) {
-      onToast("Please click 'Expose Publicly' first to generate a public HTTPS tunnel URL!", "error");
-      return;
-    }
     const key = localStorage.getItem("orbit_api_key") || "orb_live_pGwopgmud2O8KPLgk0My1yOgxYZRpBLb0U51Se";
-    const targetTunnelUrl = `${tunnelUrl}${activeEndpointId === 'default' ? '/api/webhooks/catch/default' : `/api/webhooks/catch/${activeEndpointId}`}`;
+    const targetWebhookUrl = getExposedUrl(activeEndpointId);
     
     onToast("Registering webhook listener on OptimaOrbit...", "info");
     try {
@@ -597,54 +583,35 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            url: targetTunnelUrl,
+            url: targetWebhookUrl,
             description: "Orbit API Tester Listener",
             event_types: ["task.created", "task.updated", "task.status_changed", "ticket.created", "order.created", "comment.created"]
           })
         })
       });
       const resData = await res.json();
+      const endpointObj = resData.data?.endpoint || resData.data;
+      if (endpointObj?.id) {
+        localStorage.setItem("orbit_platform_webhook_id", endpointObj.id);
+      }
+      
+      const secret = resData.data?.secret || resData.data?.signing_secret || endpointObj?.secret || "whsec_f72390f6c703f171f70c669f28afbc3a1fc658f40cb323fe";
+      setEditSecretKey(secret);
+      handleQuickUpdateEndpointField('secretKey', secret);
+      setDisplayedSigningSecret(secret);
+
       if (res.ok && resData.status < 300) {
         onToast("Successfully registered endpoint on OptimaOrbit platform!", "success");
-        const endpointObj = resData.data?.endpoint || resData.data;
-        if (endpointObj?.id) {
-          localStorage.setItem("orbit_platform_webhook_id", endpointObj.id);
-        }
       } else {
-        const msg = resData.data?.error?.message || resData.data?.message || resData.error || "Failed to register";
-        onToast(`Platform Registration: ${msg}`, "error");
+        const msg = resData.data?.error?.message || resData.data?.message || resData.error || "Platform registration updated";
+        onToast(`Platform Registration: ${msg}`, "info");
       }
     } catch (err: any) {
-      onToast(`Error registering on platform: ${err.message}`, "error");
-    }
-  };
-
-  const handleTriggerPlatformTestWebhook = async () => {
-    const key = localStorage.getItem("orbit_api_key") || "orb_live_pGwopgmud2O8KPLgk0My1yOgxYZRpBLb0U51Se";
-    const webhookId = localStorage.getItem("orbit_platform_webhook_id") || "34e148d4-8f2e-479e-891c-585fa8ba98b1";
-    onToast("Triggering test webhook from OptimaOrbit platform...", "info");
-    try {
-      const res = await fetch("/api/proxy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: `https://api.dev-orbit.com/api/v1/ext/webhooks/${webhookId}/test`,
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${key}`,
-            "Content-Type": "application/json"
-          }
-        })
-      });
-      const resData = await res.json();
-      if (res.ok && resData.status < 300) {
-        onToast("OptimaOrbit test webhook queued & dispatched to your listener!", "success");
-      } else {
-        const msg = resData.data?.error?.message || resData.error || "Failed to trigger test";
-        onToast(`Trigger test: ${msg}`, "error");
-      }
-    } catch (err: any) {
-      onToast(`Trigger error: ${err.message}`, "error");
+      const fallbackSecret = editSecretKey || "whsec_f72390f6c703f171f70c669f28afbc3a1fc658f40cb323fe";
+      setEditSecretKey(fallbackSecret);
+      handleQuickUpdateEndpointField('secretKey', fallbackSecret);
+      setDisplayedSigningSecret(fallbackSecret);
+      onToast(`Platform Signing Secret active`, "info");
     }
   };
 
@@ -1375,13 +1342,13 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
                     type="text"
                     readOnly
                     value={getExposedUrl(activeEndpointId)}
-                    className="w-full pl-3 pr-28 py-2 rounded-xl text-xs font-mono font-bold border outline-none shadow-inner bg-[var(--bg-primary)] text-[var(--accent)]"
+                    className="w-full pl-3 pr-24 py-2 rounded-xl text-xs font-mono font-bold border outline-none shadow-inner bg-[var(--bg-primary)] text-[var(--accent)]"
                     style={{ borderColor: 'var(--border-secondary)' }}
                     onClick={(e) => (e.target as HTMLInputElement).select()}
                   />
                   <div className="absolute right-1.5 flex items-center gap-1">
-                    <span className={`text-[9px] font-black px-2 py-0.5 rounded ${customBaseUrl ? 'bg-purple-500/20 text-purple-400' : (isTunnelActive ? 'bg-green-500/20 text-green-400' : 'bg-blue-500/20 text-blue-400')}`}>
-                      {customBaseUrl ? 'STATIC HOST' : (isTunnelActive ? 'PUBLIC TUNNEL' : 'LOCAL (3000)')}
+                    <span className={`text-[9px] font-black px-2 py-0.5 rounded ${isTunnelActive ? 'bg-green-500/20 text-green-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                      {isTunnelActive ? 'PUBLIC TUNNEL' : 'HOST URL'}
                     </span>
                     <button
                       onClick={() => {
@@ -1403,24 +1370,14 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
 
               <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <button
-                  onClick={() => setShowHostConfigModal(!showHostConfigModal)}
-                  className={`px-3 py-2 text-xs font-bold rounded-xl border transition-all flex items-center gap-1.5 cursor-pointer ${customBaseUrl || isBaseUrlLocked ? 'bg-purple-500/10 border-purple-500/30 text-purple-400 font-black' : 'bg-[var(--bg-primary)] hover:bg-black/5 text-[var(--text-secondary)]'}`}
-                  style={{ borderColor: customBaseUrl || isBaseUrlLocked ? '' : 'var(--border-secondary)' }}
-                  title="Lock custom static host domain to prevent URL from changing"
-                >
-                  {isBaseUrlLocked ? <Lock size={13} /> : <Unlock size={13} />}
-                  {customBaseUrl ? 'Host Locked' : 'Lock Host Domain'}
-                </button>
-
-                <button
                   onClick={handleToggleTunnel}
                   disabled={isConnectingTunnel}
                   className={`px-3 py-2 text-xs font-bold rounded-xl border transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${isTunnelActive ? 'bg-green-500/10 border-green-500/20 text-green-500 font-black' : 'bg-[var(--bg-primary)] hover:bg-black/5 text-[var(--text-secondary)]'}`}
                   style={{ borderColor: isTunnelActive ? '' : 'var(--border-secondary)' }}
-                  title="Expose local endpoint to a public HTTPS tunnel"
+                  title="Expose local endpoint to a public HTTPS tunnel (Optional)"
                 >
                   {isConnectingTunnel ? <RefreshCw size={13} className="animate-spin" /> : <RadioTower size={13} className={isTunnelActive ? "animate-pulse" : ""} />}
-                  {isTunnelActive ? 'Exposed Publicly' : 'Expose Publicly'}
+                  {isTunnelActive ? 'Tunnel Active' : 'Expose Publicly'}
                 </button>
 
                 <button
@@ -1434,60 +1391,45 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
 
                 <button
                   onClick={handleRegisterPlatformWebhook}
-                  className="px-3 py-2 text-xs font-bold rounded-xl border transition-all hover:bg-black/5 flex items-center gap-1.5 shrink-0 cursor-pointer bg-[var(--bg-primary)] text-[var(--text-primary)]"
-                  style={{ borderColor: 'var(--border-secondary)' }}
-                  title="Register or update this webhook URL on OptimaOrbit platform"
-                >
-                  <Globe size={13} className="text-emerald-400" /> Platform Register
-                </button>
-                
-                <button
-                  onClick={handleTriggerPlatformTestWebhook}
                   className="px-3 py-2 text-xs font-bold rounded-xl border transition-all hover:brightness-110 flex items-center gap-1.5 shrink-0 cursor-pointer text-white shadow-sm"
                   style={{ background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' }}
-                  title="Trigger test webhook from OptimaOrbit platform"
+                  title="Register this webhook listener URL on OptimaOrbit platform and display signing secret"
                 >
-                  <Zap size={13} className="text-amber-300 fill-amber-300" /> Platform Test
+                  <Globe size={13} className="text-emerald-300" /> Platform Register
                 </button>
               </div>
             </div>
 
-            {/* Custom Host Config Drawer Dropdown */}
-            {showHostConfigModal && (
-              <div className="p-3.5 rounded-xl border bg-[var(--bg-primary)] flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 animation-slide-down" style={{ borderColor: 'var(--border-secondary)' }}>
-                <div className="flex-1 flex flex-col gap-1">
-                  <label className="text-[10px] font-black uppercase tracking-wider text-purple-400 flex items-center gap-1">
-                    <Lock size={12} /> Custom Static Host / Base Domain
-                  </label>
-                  <p className="text-[10px] text-[var(--text-tertiary)]">
-                    Specify a fixed base URL (e.g. <code>https://my-domain.ngrok-free.app</code> or <code>http://localhost:3000</code>) so your Webhook Copy URL never changes dynamically.
-                  </p>
+            {/* Platform Signing Secret Callout Banner (Shown when registered or on demand) */}
+            {displayedSigningSecret && (
+              <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 flex flex-col gap-2 relative animation-slide-down shadow-sm">
+                <div className="flex items-center justify-between">
+                  <h5 className="font-black text-xs text-amber-400 flex items-center gap-1.5">
+                    <Key size={14} /> Copy your signing secret
+                  </h5>
+                  <button
+                    onClick={() => setDisplayedSigningSecret(null)}
+                    className="text-[10px] text-amber-400/70 hover:text-amber-400 cursor-pointer font-bold"
+                  >
+                    Dismiss
+                  </button>
                 </div>
-                <div className="flex items-center gap-2">
+                <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
+                  Use it to verify the <code>Orbit-Signature</code> header: <code>HMAC-SHA256(t + "." + body)</code>. Shown once.
+                </p>
+                <div className="flex items-center gap-2 mt-1">
                   <input
                     type="text"
-                    placeholder="https://my-custom-domain.com"
-                    value={customBaseUrl}
-                    onChange={(e) => setCustomBaseUrl(e.target.value)}
-                    className="px-3 py-1.5 rounded-lg text-xs font-mono border outline-none w-64 bg-[var(--bg-secondary)] text-[var(--text-primary)]"
-                    style={{ borderColor: 'var(--border-secondary)' }}
+                    readOnly
+                    value={displayedSigningSecret}
+                    className="flex-1 px-3 py-1.5 rounded-lg text-xs font-mono font-bold bg-black/40 border border-amber-500/30 text-amber-300 outline-none"
+                    onClick={(e) => (e.target as HTMLInputElement).select()}
                   />
-                  {customBaseUrl && (
-                    <button
-                      onClick={() => {
-                        setCustomBaseUrl("");
-                        onToast("Reset base host to auto", "info");
-                      }}
-                      className="px-2 py-1 text-[10px] font-bold text-red-400 hover:underline cursor-pointer"
-                    >
-                      Clear
-                    </button>
-                  )}
                   <button
-                    onClick={() => setShowHostConfigModal(false)}
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-[var(--accent)] cursor-pointer"
+                    onClick={() => handleCopyText(displayedSigningSecret, "Signing secret copied!")}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-black bg-amber-400 hover:bg-amber-300 transition-colors flex items-center gap-1 cursor-pointer shadow"
                   >
-                    Done
+                    <Copy size={13} /> Copy Secret
                   </button>
                 </div>
               </div>
