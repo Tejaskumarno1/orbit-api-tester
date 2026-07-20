@@ -1,0 +1,6 @@
+{
+  "name": "Orbit API Tester",
+  "description": "An API testing playground and client for the Dev-Orbit developer platform APIs, complete with built-in authentication and CORS-safe server-side proxy.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
