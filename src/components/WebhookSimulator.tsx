@@ -4,7 +4,8 @@ import {
   Globe, Code2, RotateCcw, HelpCircle, ChevronDown, BookOpen, X, Copy, Plus, 
   Trash2, Save, History, Clock, ArrowDownToLine, ArrowUpRight, RadioTower, 
   Search, SlidersHorizontal, Settings, Download, Check, ShieldAlert, FileCode, CheckSquare,
-  BarChart4, ArrowRightLeft, Maximize2, ShieldCheck, CheckSquare as CheckboxIcon, Zap
+  BarChart4, ArrowRightLeft, Maximize2, ShieldCheck, CheckSquare as CheckboxIcon, Zap,
+  Eye, EyeOff, Lock, Unlock, Edit3
 } from 'lucide-react';
 import ReactDiffViewer from 'react-diff-viewer-continued';
 import { generateWebhookSignature } from '../utils/crypto';
@@ -103,11 +104,23 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
   // Endpoint configuration states
   const [isConfiguringEndpoint, setIsConfiguringEndpoint] = useState(false);
   const [editName, setEditName] = useState("");
+  const [editCustomPath, setEditCustomPath] = useState("");
+  const [editSecretKey, setEditSecretKey] = useState("");
+  const [showSecretKey, setShowSecretKey] = useState(false);
+  const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
   const [editStatus, setEditStatus] = useState<number>(200);
   const [editDelay, setEditDelay] = useState<number>(0);
   const [editHeaders, setEditHeaders] = useState<{ key: string; value: string }[]>([]);
   const [editBody, setEditBody] = useState("");
   const [editBodyError, setEditBodyError] = useState<string | null>(null);
+  
+  // Custom Base Host / Locking States
+  const [customBaseUrl, setCustomBaseUrl] = useState(() => localStorage.getItem("orbit_webhook_custom_base") || "");
+  const [isBaseUrlLocked, setIsBaseUrlLocked] = useState(() => localStorage.getItem("orbit_webhook_lock_base") === "true");
+  const [showHostConfigModal, setShowHostConfigModal] = useState(false);
+
+  useEffect(() => { localStorage.setItem("orbit_webhook_custom_base", customBaseUrl); }, [customBaseUrl]);
+  useEffect(() => { localStorage.setItem("orbit_webhook_lock_base", String(isBaseUrlLocked)); }, [isBaseUrlLocked]);
   
   // Advanced Features Edit States
   const [editChaosEnabled, setEditChaosEnabled] = useState(false);
@@ -140,6 +153,8 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
         const active = data.find((e: any) => e.id === activeEndpointId) || data[0];
         if (active) {
           setEditName(active.name);
+          setEditCustomPath(active.customPath || active.id || "");
+          setEditSecretKey(active.secretKey || "");
           setEditStatus(active.responseStatus);
           setEditDelay(active.responseDelay);
           setEditHeaders(active.responseHeaders || []);
@@ -201,6 +216,8 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
     const active = endpoints.find((e: any) => e.id === activeEndpointId);
     if (active) {
       setEditName(active.name);
+      setEditCustomPath(active.customPath || active.id || "");
+      setEditSecretKey(active.secretKey || "");
       setEditStatus(active.responseStatus);
       setEditDelay(active.responseDelay);
       setEditHeaders(active.responseHeaders || []);
@@ -282,19 +299,67 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
   }, []);
 
   // Exposed Hook URL generator
-  const getExposedUrl = (id: string) => {
+  const getExposedUrl = (idOrEndpoint?: any) => {
+    let targetEndpoint = typeof idOrEndpoint === 'object' ? idOrEndpoint : endpoints.find(e => e.id === idOrEndpoint || (e.customPath && e.customPath === idOrEndpoint));
+    if (!targetEndpoint) {
+      targetEndpoint = endpoints.find(e => e.id === activeEndpointId) || endpoints[0];
+    }
+
+    const pathSlug = targetEndpoint?.customPath || targetEndpoint?.id || "default";
+    const pathSuffix = pathSlug === "default" ? "" : `/${pathSlug}`;
+    const fullPath = `/api/webhooks/catch${pathSuffix}`;
+
+    if (customBaseUrl && customBaseUrl.trim()) {
+      const cleanBase = customBaseUrl.trim().replace(/\/+$/, "");
+      return `${cleanBase}${fullPath}`;
+    }
+
+    if (isTunnelActive && tunnelUrl) {
+      const cleanTunnel = tunnelUrl.trim().replace(/\/+$/, "");
+      return `${cleanTunnel}${fullPath}`;
+    }
+
     const origin = window.location.origin;
-    return `${origin}/api/webhooks/catch${id === 'default' ? '' : `/${id}`}`;
+    return `${origin}${fullPath}`;
+  };
+
+  const generateRandomEndpointKey = () => {
+    const randKey = "whsec_" + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    setEditSecretKey(randKey);
+    handleQuickUpdateEndpointField('secretKey', randKey);
+    onToast("Generated & saved new Endpoint Key!", "info");
+  };
+
+  const handleQuickUpdateEndpointField = async (field: 'customPath' | 'secretKey' | 'name', value: string) => {
+    const active = endpoints.find(e => e.id === activeEndpointId);
+    if (!active) return;
+    try {
+      const res = await fetch(`/api/webhooks/endpoints/${activeEndpointId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...active,
+          [field]: value
+        })
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setEndpoints(prev => prev.map(e => e.id === activeEndpointId ? updated : e));
+      }
+    } catch (e) {}
   };
 
   // Endpoint API Actions
   const handleCreateEndpoint = async () => {
     try {
+      const count = endpoints.length + 1;
       const res = await fetch("/api/webhooks/endpoints", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: `Custom Endpoint ${endpoints.length + 1}`,
+          name: `Custom Endpoint ${count}`,
+          customPath: `endpoint-${count}`,
+          secretKey: "",
           responseStatus: 200,
           responseDelay: 0,
           responseBody: JSON.stringify({ success: true, message: "Webhook simulator response" }, null, 2),
@@ -336,6 +401,8 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: editName,
+          customPath: editCustomPath,
+          secretKey: editSecretKey,
           responseStatus: editStatus,
           responseDelay: editDelay,
           responseHeaders: editHeaders,
@@ -1293,15 +1360,150 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
       {mode === 'listener' && (
         <div className="flex flex-col flex-1 gap-6 min-h-0 animation-fade-in">
           
-          {/* Active Endpoint Settings Bar */}
-          <div className="flex flex-wrap items-center justify-between p-4 rounded-2xl border bg-gradient-to-r from-[var(--bg-secondary)] to-[var(--bg-primary)] shadow-sm gap-3" style={{ borderColor: 'var(--border-secondary)' }}>
-            <div className="flex flex-wrap items-center gap-2.5">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold" style={{ color: 'var(--text-secondary)' }}>Listener Path:</span>
+          {/* Active Endpoint Settings & Webhook Control Bar */}
+          <div className="flex flex-col gap-3 p-4 rounded-2xl border bg-gradient-to-r from-[var(--bg-secondary)] to-[var(--bg-primary)] shadow-sm" style={{ borderColor: 'var(--border-secondary)' }}>
+            
+            {/* Row 1: Visible Webhook URL Display Input Bar & Actions */}
+            <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+              <div className="flex-1 flex items-center gap-2 min-w-0">
+                <span className="text-xs font-black shrink-0 flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
+                  <RadioTower size={14} className="text-indigo-400" />
+                  Webhook URL:
+                </span>
+                <div className="flex-1 relative flex items-center min-w-0">
+                  <input
+                    type="text"
+                    readOnly
+                    value={getExposedUrl(activeEndpointId)}
+                    className="w-full pl-3 pr-28 py-2 rounded-xl text-xs font-mono font-bold border outline-none shadow-inner bg-[var(--bg-primary)] text-[var(--accent)]"
+                    style={{ borderColor: 'var(--border-secondary)' }}
+                    onClick={(e) => (e.target as HTMLInputElement).select()}
+                  />
+                  <div className="absolute right-1.5 flex items-center gap-1">
+                    <span className={`text-[9px] font-black px-2 py-0.5 rounded ${customBaseUrl ? 'bg-purple-500/20 text-purple-400' : (isTunnelActive ? 'bg-green-500/20 text-green-400' : 'bg-blue-500/20 text-blue-400')}`}>
+                      {customBaseUrl ? 'STATIC HOST' : (isTunnelActive ? 'PUBLIC TUNNEL' : 'LOCAL (3000)')}
+                    </span>
+                    <button
+                      onClick={() => {
+                        const copyStr = getExposedUrl(activeEndpointId);
+                        handleCopyText(copyStr, 'Webhook URL copied to clipboard!');
+                        setCopiedUrlId(activeEndpointId);
+                        setTimeout(() => setCopiedUrlId(null), 2000);
+                      }}
+                      className="px-2.5 py-1 text-[10px] font-black rounded-lg text-white shadow transition-all hover:brightness-110 flex items-center gap-1 cursor-pointer"
+                      style={{ background: 'var(--accent)' }}
+                      title="Copy visible Webhook URL"
+                    >
+                      {copiedUrlId === activeEndpointId ? <Check size={11} /> : <Copy size={11} />}
+                      {copiedUrlId === activeEndpointId ? 'Copied' : 'Copy URL'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setShowHostConfigModal(!showHostConfigModal)}
+                  className={`px-3 py-2 text-xs font-bold rounded-xl border transition-all flex items-center gap-1.5 cursor-pointer ${customBaseUrl || isBaseUrlLocked ? 'bg-purple-500/10 border-purple-500/30 text-purple-400 font-black' : 'bg-[var(--bg-primary)] hover:bg-black/5 text-[var(--text-secondary)]'}`}
+                  style={{ borderColor: customBaseUrl || isBaseUrlLocked ? '' : 'var(--border-secondary)' }}
+                  title="Lock custom static host domain to prevent URL from changing"
+                >
+                  {isBaseUrlLocked ? <Lock size={13} /> : <Unlock size={13} />}
+                  {customBaseUrl ? 'Host Locked' : 'Lock Host Domain'}
+                </button>
+
+                <button
+                  onClick={handleToggleTunnel}
+                  disabled={isConnectingTunnel}
+                  className={`px-3 py-2 text-xs font-bold rounded-xl border transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${isTunnelActive ? 'bg-green-500/10 border-green-500/20 text-green-500 font-black' : 'bg-[var(--bg-primary)] hover:bg-black/5 text-[var(--text-secondary)]'}`}
+                  style={{ borderColor: isTunnelActive ? '' : 'var(--border-secondary)' }}
+                  title="Expose local endpoint to a public HTTPS tunnel"
+                >
+                  {isConnectingTunnel ? <RefreshCw size={13} className="animate-spin" /> : <RadioTower size={13} className={isTunnelActive ? "animate-pulse" : ""} />}
+                  {isTunnelActive ? 'Exposed Publicly' : 'Expose Publicly'}
+                </button>
+
+                <button
+                  onClick={() => window.open(getExposedUrl(activeEndpointId), '_blank')}
+                  className="px-3 py-2 text-xs font-bold rounded-xl border transition-all hover:bg-black/5 flex items-center gap-1.5 shrink-0 cursor-pointer bg-[var(--bg-primary)] text-[var(--text-secondary)]"
+                  style={{ borderColor: 'var(--border-secondary)' }}
+                  title="Open webhook URL in new browser tab"
+                >
+                  <ArrowUpRight size={13} /> Preview
+                </button>
+
+                <button
+                  onClick={handleRegisterPlatformWebhook}
+                  className="px-3 py-2 text-xs font-bold rounded-xl border transition-all hover:bg-black/5 flex items-center gap-1.5 shrink-0 cursor-pointer bg-[var(--bg-primary)] text-[var(--text-primary)]"
+                  style={{ borderColor: 'var(--border-secondary)' }}
+                  title="Register or update this webhook URL on OptimaOrbit platform"
+                >
+                  <Globe size={13} className="text-emerald-400" /> Platform Register
+                </button>
+                
+                <button
+                  onClick={handleTriggerPlatformTestWebhook}
+                  className="px-3 py-2 text-xs font-bold rounded-xl border transition-all hover:brightness-110 flex items-center gap-1.5 shrink-0 cursor-pointer text-white shadow-sm"
+                  style={{ background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' }}
+                  title="Trigger test webhook from OptimaOrbit platform"
+                >
+                  <Zap size={13} className="text-amber-300 fill-amber-300" /> Platform Test
+                </button>
+              </div>
+            </div>
+
+            {/* Custom Host Config Drawer Dropdown */}
+            {showHostConfigModal && (
+              <div className="p-3.5 rounded-xl border bg-[var(--bg-primary)] flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 animation-slide-down" style={{ borderColor: 'var(--border-secondary)' }}>
+                <div className="flex-1 flex flex-col gap-1">
+                  <label className="text-[10px] font-black uppercase tracking-wider text-purple-400 flex items-center gap-1">
+                    <Lock size={12} /> Custom Static Host / Base Domain
+                  </label>
+                  <p className="text-[10px] text-[var(--text-tertiary)]">
+                    Specify a fixed base URL (e.g. <code>https://my-domain.ngrok-free.app</code> or <code>http://localhost:3000</code>) so your Webhook Copy URL never changes dynamically.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="https://my-custom-domain.com"
+                    value={customBaseUrl}
+                    onChange={(e) => setCustomBaseUrl(e.target.value)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-mono border outline-none w-64 bg-[var(--bg-secondary)] text-[var(--text-primary)]"
+                    style={{ borderColor: 'var(--border-secondary)' }}
+                  />
+                  {customBaseUrl && (
+                    <button
+                      onClick={() => {
+                        setCustomBaseUrl("");
+                        onToast("Reset base host to auto", "info");
+                      }}
+                      className="px-2 py-1 text-[10px] font-bold text-red-400 hover:underline cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setShowHostConfigModal(false)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-[var(--accent)] cursor-pointer"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Row 2: API Endpoint Path Input & Manual Endpoint Key Input */}
+            <div className="flex flex-wrap items-center justify-between pt-3 border-t gap-3" style={{ borderColor: 'var(--border-primary)' }}>
+              
+              {/* Path Selector & Direct API Endpoint Path Input */}
+              <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+                <span className="text-xs font-bold shrink-0 text-[var(--text-secondary)]">Endpoint Path:</span>
+                
                 <div className="relative" ref={pathDropdownRef}>
                   <button
                     onClick={() => setIsPathDropdownOpen(!isPathDropdownOpen)}
-                    className="pl-3 pr-8 py-2 rounded-lg text-xs font-black border outline-none cursor-pointer flex items-center gap-2 shadow-sm bg-[var(--bg-primary)] select-none text-[var(--text-primary)]"
+                    className="pl-3 pr-7 py-1.5 rounded-lg text-xs font-black border outline-none cursor-pointer flex items-center gap-2 shadow-sm bg-[var(--bg-primary)] text-[var(--text-primary)]"
                     style={{ borderColor: 'var(--border-secondary)' }}
                   >
                     <span>{activeEndpoint?.name || "Select Path"}</span>
@@ -1325,15 +1527,11 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
                             }}
                           >
                             <div className="flex items-center justify-between font-bold text-xs">
-                              <span style={{ color: e.id === activeEndpointId ? 'var(--accent)' : 'var(--text-primary)' }}>
-                                {e.name}
-                              </span>
-                              <span className="text-[9px] px-1.5 py-0.5 rounded font-black bg-black/20" style={{ color: 'var(--text-secondary)' }}>
-                                {e.responseStatus}
-                              </span>
+                              <span style={{ color: e.id === activeEndpointId ? 'var(--accent)' : 'var(--text-primary)' }}>{e.name}</span>
+                              <span className="text-[9px] px-1.5 py-0.5 rounded font-black bg-black/20 text-[var(--text-secondary)]">{e.responseStatus}</span>
                             </div>
-                            <span className="text-[10px] font-mono opacity-65 truncate" style={{ color: 'var(--text-secondary)' }}>
-                              {e.id === 'default' ? '/catch' : `/catch/${e.id}`}
+                            <span className="text-[10px] font-mono opacity-65 truncate text-[var(--text-secondary)]">
+                              /catch{e.customPath ? `/${e.customPath}` : (e.id === 'default' ? '' : `/${e.id}`)}
                             </span>
                           </button>
                         ))}
@@ -1341,85 +1539,90 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
                     </div>
                   )}
                 </div>
+
+                {/* Direct Path Input */}
+                <div className="flex items-center gap-1 bg-[var(--bg-primary)] px-2 py-1 rounded-lg border flex-1 min-w-[200px]" style={{ borderColor: 'var(--border-secondary)' }}>
+                  <span className="text-[10px] font-mono opacity-60 text-[var(--text-tertiary)] shrink-0">/catch/</span>
+                  <input
+                    type="text"
+                    placeholder="custom-path-slug"
+                    value={editCustomPath}
+                    onChange={(e) => {
+                      setEditCustomPath(e.target.value);
+                      handleQuickUpdateEndpointField('customPath', e.target.value);
+                    }}
+                    className="w-full bg-transparent font-mono text-xs font-bold outline-none text-[var(--text-primary)]"
+                    title="Manually type or change API Endpoint Path slug"
+                  />
+                </div>
+
+                <button
+                  onClick={() => setIsConfiguringEndpoint(true)}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors shadow-sm bg-[var(--bg-primary)] hover:bg-black/5 cursor-pointer text-[var(--text-secondary)]"
+                  style={{ borderColor: 'var(--border-secondary)' }}
+                  title="Configure response status, delay, chaos settings"
+                >
+                  <Settings size={13} style={{ color: 'var(--accent)' }} /> Settings
+                </button>
+
+                <button
+                  onClick={handleCreateEndpoint}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold border border-dashed hover:bg-black/5 transition-colors cursor-pointer text-[var(--text-secondary)]"
+                  style={{ borderColor: 'var(--border-secondary)' }}
+                >
+                  <Plus size={13} /> Add Path
+                </button>
               </div>
 
-              <button
-                onClick={() => setIsConfiguringEndpoint(true)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border transition-colors shadow-sm bg-[var(--bg-primary)] hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer"
-                style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-secondary)' }}
-              >
-                <Settings size={13} style={{ color: 'var(--accent)' }} />
-                Endpoint Settings
-              </button>
+              {/* Manual Endpoint Key / Signing Secret Input */}
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs font-bold text-[var(--text-secondary)] flex items-center gap-1">
+                  <Key size={13} className="text-amber-400" /> Endpoint Key:
+                </span>
+                <div className="flex items-center gap-1 bg-[var(--bg-primary)] px-2 py-1 rounded-lg border" style={{ borderColor: 'var(--border-secondary)' }}>
+                  <input
+                    type={showSecretKey ? "text" : "password"}
+                    placeholder="Manual Signing Secret (whsec_...)"
+                    value={editSecretKey}
+                    onChange={(e) => {
+                      setEditSecretKey(e.target.value);
+                      handleQuickUpdateEndpointField('secretKey', e.target.value);
+                    }}
+                    className="w-44 bg-transparent font-mono text-xs font-bold outline-none text-[var(--text-primary)]"
+                    title="Enter Webhook Signing Secret Key for HMAC signature validation"
+                  />
+                  <button
+                    onClick={() => setShowSecretKey(!showSecretKey)}
+                    className="p-1 hover:bg-black/10 rounded text-[var(--text-tertiary)] cursor-pointer"
+                    title={showSecretKey ? "Hide secret" : "Show secret"}
+                  >
+                    {showSecretKey ? <EyeOff size={12} /> : <Eye size={12} />}
+                  </button>
+                  {editSecretKey && (
+                    <button
+                      onClick={() => {
+                        handleCopyText(editSecretKey, "Endpoint Key copied!");
+                        setCopiedKeyId(activeEndpointId);
+                        setTimeout(() => setCopiedKeyId(null), 1500);
+                      }}
+                      className="p-1 hover:bg-black/10 rounded text-[var(--text-tertiary)] cursor-pointer"
+                      title="Copy Endpoint Key"
+                    >
+                      {copiedKeyId === activeEndpointId ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                    </button>
+                  )}
+                  <button
+                    onClick={generateRandomEndpointKey}
+                    className="p-1 hover:bg-black/10 rounded text-amber-400 cursor-pointer"
+                    title="Generate random secret key"
+                  >
+                    <Zap size={12} />
+                  </button>
+                </div>
+              </div>
 
-              <button
-                onClick={handleCreateEndpoint}
-                className="flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-bold border border-dashed hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer"
-                style={{ color: 'var(--text-secondary)', borderColor: 'var(--border-secondary)' }}
-              >
-                <Plus size={13} /> Add Path
-              </button>
             </div>
 
-            {/* Action buttons bar */}
-            <div className="flex flex-wrap items-center gap-2">
-              
-              {/* Go Live Tunnel button */}
-              <button
-                onClick={handleToggleTunnel}
-                disabled={isConnectingTunnel}
-                className={`px-3 py-2 text-xs font-bold rounded-xl border transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${isTunnelActive ? 'bg-green-500/10 border-green-500/20 text-green-500 font-black' : 'hover:bg-black/5 dark:hover:bg-white/5 text-[var(--text-secondary)]'}`}
-                style={{ borderColor: isTunnelActive ? '' : 'var(--border-secondary)' }}
-                title="Expose local endpoint to a public HTTPS tunnel"
-              >
-                {isConnectingTunnel ? <RefreshCw size={13} className="animate-spin" /> : <RadioTower size={13} className={isTunnelActive ? "animate-pulse" : ""} />}
-                {isTunnelActive ? 'Exposed Publicly' : 'Expose Publicly'}
-              </button>
-              
-              <button
-                onClick={() => window.open(isTunnelActive ? `${tunnelUrl}${activeEndpointId === 'default' ? '' : `/${activeEndpointId}`}` : getExposedUrl(activeEndpointId), '_blank')}
-                className="px-3 py-2 text-xs font-bold rounded-xl border transition-all hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5 shrink-0 cursor-pointer"
-                style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-secondary)' }}
-                title="Open webhook URL in new tab to test GET request"
-              >
-                <ArrowUpRight size={13} />
-                Preview
-              </button>
-              
-              <button
-                onClick={() => {
-                  const copyUrlStr = isTunnelActive ? `${tunnelUrl}${activeEndpointId === 'default' ? '' : `/${activeEndpointId}`}` : getExposedUrl(activeEndpointId);
-                  handleCopyText(copyUrlStr, 'Webhook URL copied!');
-                  setCopiedUrlId(activeEndpointId);
-                  setTimeout(() => setCopiedUrlId(null), 2000);
-                }}
-                className="px-3.5 py-2 text-xs font-bold rounded-xl transition-all shadow-sm text-white hover:brightness-110 flex items-center gap-1.5 shrink-0 cursor-pointer"
-                style={{ background: 'var(--accent)' }}
-              >
-                {copiedUrlId === activeEndpointId ? <Check size={13} /> : <Copy size={13} />}
-                {copiedUrlId === activeEndpointId ? 'Copied' : 'Copy URL'}
-              </button>
-
-              <button
-                onClick={handleRegisterPlatformWebhook}
-                className="px-3 py-2 text-xs font-bold rounded-xl border transition-all hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-1.5 shrink-0 cursor-pointer bg-[var(--bg-secondary)]"
-                style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
-                title="Register or update this webhook tunnel URL on OptimaOrbit platform"
-              >
-                <Globe size={13} className="text-emerald-400" />
-                Register on Platform
-              </button>
-              
-              <button
-                onClick={handleTriggerPlatformTestWebhook}
-                className="px-3 py-2 text-xs font-bold rounded-xl border transition-all hover:brightness-110 flex items-center gap-1.5 shrink-0 cursor-pointer text-white shadow-sm"
-                style={{ background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' }}
-                title="Trigger a test webhook from OptimaOrbit platform to your listener"
-              >
-                <Zap size={13} className="text-amber-300 fill-amber-300" />
-                Trigger Platform Test
-              </button>
-            </div>
           </div>
 
           {/* MAIN DUAL PANE DASHBOARD */}
@@ -1942,6 +2145,25 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
                       {activeTab === 'request' && (
                         <div className="flex flex-col gap-5 animation-fade-in">
                           
+                          {/* HMAC Signature Validation Banner */}
+                          {selectedEventDetails.signatureStatus && selectedEventDetails.signatureStatus !== 'none' && (
+                            <div className={`p-4 rounded-xl border flex items-center gap-3 text-xs font-bold shadow-sm ${selectedEventDetails.signatureStatus === 'valid' ? 'bg-green-500/10 border-green-500/30 text-green-500' : 'bg-red-500/10 border-red-500/30 text-red-500'}`}>
+                              <ShieldCheck size={18} className="shrink-0" />
+                              <div>
+                                <h5 className="font-extrabold text-xs">
+                                  {selectedEventDetails.signatureStatus === 'valid' 
+                                    ? 'HMAC Signature Verified ✅' 
+                                    : 'HMAC Signature Mismatch ❌'}
+                                </h5>
+                                <p className="text-[10.5px] font-normal opacity-90 mt-0.5">
+                                  {selectedEventDetails.signatureStatus === 'valid'
+                                    ? 'Incoming payload signature matches the configured Endpoint Key secret.'
+                                    : 'Incoming payload signature does not match the configured Endpoint Key secret.'}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+
                           {/* Schema Validation Warnings */}
                           {selectedEventDetails.validationError && (
                             <div className="p-4 rounded-xl border border-yellow-500/20 bg-yellow-500/5 text-yellow-600 dark:text-yellow-400 flex gap-3 items-start relative overflow-hidden animate-fade-in shadow-sm">
@@ -2691,16 +2913,74 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
                   Customize the HTTP response returned by the simulator for URL path <code>/api/webhooks/catch/{activeEndpointId}</code>.
                 </p>
 
-                {/* Endpoint Name */}
+                {/* Endpoint Name & Custom Path Slug */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-black uppercase tracking-wider block" style={{ color: 'var(--text-tertiary)' }}>Endpoint Display Name</label>
+                    <input 
+                      type="text" 
+                      value={editName}
+                      onChange={e => setEditName(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl text-xs border outline-none font-bold shadow-sm bg-[var(--bg-secondary)]"
+                      style={{ color: 'var(--text-primary)', borderColor: 'var(--border-secondary)' }}
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-black uppercase tracking-wider block" style={{ color: 'var(--text-tertiary)' }}>API Endpoint Path / Slug</label>
+                    <div className="flex items-center gap-1 bg-[var(--bg-secondary)] px-3 py-2 rounded-xl border" style={{ borderColor: 'var(--border-secondary)' }}>
+                      <span className="text-[10px] font-mono opacity-60 text-[var(--text-tertiary)]">/catch/</span>
+                      <input 
+                        type="text" 
+                        value={editCustomPath}
+                        onChange={e => setEditCustomPath(e.target.value)}
+                        placeholder="custom-path"
+                        className="w-full bg-transparent font-mono text-xs font-bold outline-none text-[var(--text-primary)]"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Endpoint Secret Key / Signing Key */}
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] font-black uppercase tracking-wider block" style={{ color: 'var(--text-tertiary)' }}>Endpoint Display Name</label>
-                  <input 
-                    type="text" 
-                    value={editName}
-                    onChange={e => setEditName(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl text-xs border outline-none font-bold shadow-sm bg-[var(--bg-secondary)]"
-                    style={{ color: 'var(--text-primary)', borderColor: 'var(--border-secondary)' }}
-                  />
+                  <label className="text-[10px] font-black uppercase tracking-wider flex items-center justify-between" style={{ color: 'var(--text-tertiary)' }}>
+                    <span>Endpoint Key / Signing Secret</span>
+                    <button
+                      onClick={generateRandomEndpointKey}
+                      className="text-[10px] font-bold text-amber-400 hover:underline cursor-pointer flex items-center gap-1"
+                    >
+                      <Zap size={11} /> Generate Random Key
+                    </button>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 flex items-center gap-2 bg-[var(--bg-secondary)] px-3 py-2 rounded-xl border" style={{ borderColor: 'var(--border-secondary)' }}>
+                      <Key size={14} className="text-amber-400 shrink-0" />
+                      <input 
+                        type={showSecretKey ? "text" : "password"} 
+                        value={editSecretKey}
+                        onChange={e => setEditSecretKey(e.target.value)}
+                        placeholder="whsec_123456789..."
+                        className="w-full bg-transparent font-mono text-xs font-bold outline-none text-[var(--text-primary)]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSecretKey(!showSecretKey)}
+                        className="p-1 text-[var(--text-tertiary)] hover:text-white cursor-pointer"
+                      >
+                        {showSecretKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    </div>
+                    {editSecretKey && (
+                      <button
+                        type="button"
+                        onClick={() => handleCopyText(editSecretKey, "Endpoint Key copied!")}
+                        className="px-3 py-2 rounded-xl border text-xs font-bold bg-[var(--bg-secondary)] hover:bg-black/5 cursor-pointer text-[var(--text-primary)]"
+                        style={{ borderColor: 'var(--border-secondary)' }}
+                      >
+                        <Copy size={13} />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

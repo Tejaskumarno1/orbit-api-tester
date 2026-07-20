@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import { spawn } from "child_process";
 import { createServer as createViteServer } from "vite";
+import crypto from "crypto";
 
 async function startServer() {
   const app = express();
@@ -30,6 +31,8 @@ async function startServer() {
   interface WebhookEndpoint {
     id: string;
     name: string;
+    customPath?: string;
+    secretKey?: string;
     responseStatus: number;
     responseDelay: number; // in milliseconds
     responseBody: string;
@@ -67,6 +70,7 @@ async function startServer() {
     deliveryStatus: 'Success' | 'Failed';
     validationError?: string | null;
     relayLogs?: { url: string; status: number; error?: string }[];
+    signatureStatus?: 'valid' | 'invalid' | 'none';
   }
 
   // Localtunnel Process Manager
@@ -141,6 +145,8 @@ async function startServer() {
     {
       id: "default",
       name: "Default Endpoint",
+      customPath: "default",
+      secretKey: "",
       responseStatus: 200,
       responseDelay: 0,
       responseBody: JSON.stringify({ success: true, message: "Webhook received" }, null, 2),
@@ -239,13 +245,16 @@ async function startServer() {
 
   app.post("/api/webhooks/endpoints", (req, res) => {
     const { 
-      name, responseStatus, responseDelay, responseBody, responseHeaders,
+      name, customPath, secretKey, responseStatus, responseDelay, responseBody, responseHeaders,
       chaosEnabled, chaosJitterMin, chaosJitterMax, chaosFailureRate, chaosRateLimit,
       relayTargets, jsonSchema
     } = req.body;
+    const generatedId = "wh_" + Math.random().toString(36).substring(2, 11);
     const newEndpoint: WebhookEndpoint = {
-      id: "wh_" + Math.random().toString(36).substring(2, 11),
+      id: generatedId,
       name: name || "New Endpoint",
+      customPath: customPath !== undefined ? String(customPath).trim() : generatedId,
+      secretKey: secretKey !== undefined ? String(secretKey).trim() : "",
       responseStatus: responseStatus !== undefined ? Number(responseStatus) : 200,
       responseDelay: responseDelay !== undefined ? Number(responseDelay) : 0,
       responseBody: responseBody !== undefined ? String(responseBody) : JSON.stringify({ success: true }, null, 2),
@@ -265,17 +274,19 @@ async function startServer() {
   app.put("/api/webhooks/endpoints/:id", (req, res) => {
     const { id } = req.params;
     const { 
-      name, responseStatus, responseDelay, responseBody, responseHeaders,
+      name, customPath, secretKey, responseStatus, responseDelay, responseBody, responseHeaders,
       chaosEnabled, chaosJitterMin, chaosJitterMax, chaosFailureRate, chaosRateLimit,
       relayTargets, jsonSchema
     } = req.body;
-    const index = endpoints.findIndex(e => e.id === id);
+    const index = endpoints.findIndex(e => e.id === id || (e.customPath && e.customPath === id));
     if (index === -1) {
       return res.status(404).json({ error: "Endpoint not found" });
     }
     endpoints[index] = {
       ...endpoints[index],
       name: name !== undefined ? name : endpoints[index].name,
+      customPath: customPath !== undefined ? String(customPath).trim() : endpoints[index].customPath,
+      secretKey: secretKey !== undefined ? String(secretKey).trim() : endpoints[index].secretKey,
       responseStatus: responseStatus !== undefined ? Number(responseStatus) : endpoints[index].responseStatus,
       responseDelay: responseDelay !== undefined ? Number(responseDelay) : endpoints[index].responseDelay,
       responseBody: responseBody !== undefined ? String(responseBody) : endpoints[index].responseBody,
@@ -296,7 +307,7 @@ async function startServer() {
     if (id === "default") {
       return res.status(400).json({ error: "Cannot delete the default endpoint" });
     }
-    const index = endpoints.findIndex(e => e.id === id);
+    const index = endpoints.findIndex(e => e.id === id || (e.customPath && e.customPath === id));
     if (index === -1) {
       return res.status(404).json({ error: "Endpoint not found" });
     }
@@ -330,17 +341,22 @@ async function startServer() {
   app.all(["/api/webhooks/catch", "/api/webhooks/catch/*"], async (req, res) => {
     const startTime = Date.now();
 
-    // Extract endpointId from path
-    let endpointId = "default";
+    // Extract path parameter (e.g., /api/webhooks/catch/my-endpoint -> pathParam = "my-endpoint")
+    let pathParam = "default";
     const pathParts = req.path.split("/").filter(Boolean);
-    if (pathParts.length > 3) {
-      endpointId = pathParts[3];
+    if (pathParts.length >= 4) {
+      pathParam = pathParts.slice(3).join("/");
+    } else if (pathParts.length === 3) {
+      pathParam = "default";
     }
 
-    // Find the configuration for this endpoint
-    const endpoint = endpoints.find(e => e.id === endpointId) || endpoints.find(e => e.id === "default") || {
+    // Find the configuration for this endpoint matching id or customPath
+    const endpoint = endpoints.find(e => e.id === pathParam || (e.customPath && e.customPath === pathParam)) || 
+                     endpoints.find(e => e.id === "default") || {
       id: "default",
       name: "Default Endpoint",
+      customPath: "default",
+      secretKey: "",
       responseStatus: 200,
       responseDelay: 0,
       responseBody: JSON.stringify({ success: true, message: "Webhook received" }, null, 2),
@@ -353,6 +369,38 @@ async function startServer() {
       relayTargets: [],
       jsonSchema: ""
     };
+
+    // Signature validation if secretKey is configured
+    let signatureStatus: 'valid' | 'invalid' | 'none' = 'none';
+    if (endpoint.secretKey && endpoint.secretKey.trim()) {
+      const sigHeader = req.headers['orbit-signature'] || req.headers['x-hub-signature-256'] || req.headers['stripe-signature'] || req.headers['x-signature'];
+      if (sigHeader) {
+        try {
+          const rawBodyStr = (req as any).rawBody || (typeof req.body === 'string' ? req.body : JSON.stringify(req.body)) || "";
+          const headerStr = String(sigHeader);
+          if (headerStr.includes("t=") && headerStr.includes("v1=")) {
+            const tMatch = headerStr.match(/t=([^,]+)/);
+            const v1Match = headerStr.match(/v1=([^,]+)/);
+            if (tMatch && v1Match) {
+              const timestamp = tMatch[1];
+              const providedHash = v1Match[1];
+              const hmac = crypto.createHmac('sha256', endpoint.secretKey.trim());
+              hmac.update(`${timestamp}.${rawBodyStr}`);
+              const expectedHash = hmac.digest('hex');
+              signatureStatus = (expectedHash === providedHash) ? 'valid' : 'invalid';
+            }
+          } else {
+            const cleanProvided = headerStr.replace(/^sha256=/, '');
+            const hmac = crypto.createHmac('sha256', endpoint.secretKey.trim());
+            hmac.update(rawBodyStr);
+            const expectedHash = hmac.digest('hex');
+            signatureStatus = (expectedHash === cleanProvided) ? 'valid' : 'invalid';
+          }
+        } catch (e) {
+          signatureStatus = 'invalid';
+        }
+      }
+    }
 
     // Chaos Testing: Rate limit check (limit per minute)
     if (endpoint.chaosEnabled && endpoint.chaosRateLimit && endpoint.chaosRateLimit > 0) {
@@ -381,7 +429,8 @@ async function startServer() {
           responseTime: responseTime,
           deliveryStatus: 'Failed',
           validationError: "Rate limit exceeded (Chaos testing)",
-          relayLogs: []
+          relayLogs: [],
+          signatureStatus
         };
         
         webhookHistory.unshift(webhookEvent);
@@ -493,7 +542,8 @@ async function startServer() {
       responseTime: responseTime,
       deliveryStatus: resStatus < 400 ? 'Success' : 'Failed',
       validationError,
-      relayLogs
+      relayLogs,
+      signatureStatus
     };
 
     webhookHistory.unshift(webhookEvent);
