@@ -1326,8 +1326,7 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
       {/* --- LISTENER MODE INTERFACE --- */}
       {mode === 'listener' && (
         <div className="flex flex-col flex-1 gap-6 min-h-0 animation-fade-in">
-          
-          {/* Active Endpoint Settings & Webhook Control Bar */}
+                {/* Active Endpoint Settings & Webhook Control Bar */}
           <div className="flex flex-col gap-3 p-4 rounded-2xl border bg-gradient-to-r from-[var(--bg-secondary)] to-[var(--bg-primary)] shadow-sm" style={{ borderColor: 'var(--border-secondary)' }}>
             
             {/* Row 1: Visible Webhook URL Display Input Bar & Actions */}
@@ -1353,11 +1352,11 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
                     <button
                       onClick={() => {
                         const copyStr = getExposedUrl(activeEndpointId);
-                        handleCopyText(copyStr, 'Webhook URL copied to clipboard!');
+                        handleCopyText(copyStr, 'Webhook URL copied!');
                         setCopiedUrlId(activeEndpointId);
                         setTimeout(() => setCopiedUrlId(null), 2000);
                       }}
-                      className="px-2.5 py-1 text-[10px] font-black rounded-lg text-white shadow transition-all hover:brightness-110 flex items-center gap-1 cursor-pointer"
+                      className="px-2.5 py-1 text-[10px] font-black rounded-lg text-white shadow hover:brightness-110 flex items-center gap-1 cursor-pointer"
                       style={{ background: 'var(--accent)' }}
                       title="Copy visible Webhook URL"
                     >
@@ -1391,61 +1390,57 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
 
                 <button
                   onClick={handleRegisterPlatformWebhook}
-                  className="px-3 py-2 text-xs font-bold rounded-xl border transition-all hover:brightness-110 flex items-center gap-1.5 shrink-0 cursor-pointer text-white shadow-sm"
+                  className="px-3.5 py-2 text-xs font-black rounded-xl border transition-all hover:brightness-110 flex items-center gap-1.5 shrink-0 cursor-pointer text-white shadow-sm"
                   style={{ background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' }}
-                  title="Register this webhook listener URL on OptimaOrbit platform and display signing secret"
+                  title="Register this webhook listener URL on OptimaOrbit platform"
                 >
                   <Globe size={13} className="text-emerald-300" /> Platform Register
                 </button>
               </div>
             </div>
 
-            {/* Platform Signing Secret Callout Banner (Shown when registered or on demand) */}
+            {/* Platform Signing Secret Banner (Shown when registered or on demand) */}
             {displayedSigningSecret && (
-              <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 flex flex-col gap-2 relative animation-slide-down shadow-sm">
-                <div className="flex items-center justify-between">
+              <div className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 flex flex-col md:flex-row md:items-center justify-between gap-3 animation-slide-down shadow-sm">
+                <div className="flex-1 flex flex-col gap-0.5">
                   <h5 className="font-black text-xs text-amber-400 flex items-center gap-1.5">
-                    <Key size={14} /> Copy your signing secret
+                    <Key size={14} /> Platform Signing Secret Active
                   </h5>
-                  <button
-                    onClick={() => setDisplayedSigningSecret(null)}
-                    className="text-[10px] text-amber-400/70 hover:text-amber-400 cursor-pointer font-bold"
-                  >
-                    Dismiss
-                  </button>
+                  <p className="text-[10.5px] text-[var(--text-secondary)]">
+                    Use this secret to verify the <code>Orbit-Signature</code> header: <code>HMAC-SHA256(t + "." + body)</code>.
+                  </p>
                 </div>
-                <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-                  Use it to verify the <code>Orbit-Signature</code> header: <code>HMAC-SHA256(t + "." + body)</code>. Shown once.
-                </p>
-                <div className="flex items-center gap-2 mt-1">
-                  <input
-                    type="text"
-                    readOnly
-                    value={displayedSigningSecret}
-                    className="flex-1 px-3 py-1.5 rounded-lg text-xs font-mono font-bold bg-black/40 border border-amber-500/30 text-amber-300 outline-none"
-                    onClick={(e) => (e.target as HTMLInputElement).select()}
-                  />
+                <div className="flex items-center gap-2 shrink-0">
+                  <code className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-black/40 text-amber-300 border border-amber-500/20 max-w-[260px] truncate">
+                    {displayedSigningSecret}
+                  </code>
                   <button
                     onClick={() => handleCopyText(displayedSigningSecret, "Signing secret copied!")}
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-black bg-amber-400 hover:bg-amber-300 transition-colors flex items-center gap-1 cursor-pointer shadow"
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold text-black bg-amber-400 hover:bg-amber-300 transition-colors flex items-center gap-1 cursor-pointer shadow shrink-0"
                   >
-                    <Copy size={13} /> Copy Secret
+                    <Copy size={12} /> Copy Secret
+                  </button>
+                  <button
+                    onClick={() => setDisplayedSigningSecret(null)}
+                    className="p-1 text-amber-400/70 hover:text-amber-400 cursor-pointer font-bold shrink-0 text-xs"
+                  >
+                    <X size={14} />
                   </button>
                 </div>
               </div>
             )}
 
             {/* Row 2: API Endpoint Path Input & Manual Endpoint Key Input */}
-            <div className="flex flex-wrap items-center justify-between pt-3 border-t gap-3" style={{ borderColor: 'var(--border-primary)' }}>
+            <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between pt-3 border-t gap-3" style={{ borderColor: 'var(--border-primary)' }}>
               
-              {/* Path Selector & Direct API Endpoint Path Input */}
-              <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
-                <span className="text-xs font-bold shrink-0 text-[var(--text-secondary)]">Endpoint Path:</span>
+              {/* Left Group: Endpoint Path controls */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-bold text-[var(--text-secondary)] shrink-0">Endpoint Path:</span>
                 
                 <div className="relative" ref={pathDropdownRef}>
                   <button
                     onClick={() => setIsPathDropdownOpen(!isPathDropdownOpen)}
-                    className="pl-3 pr-7 py-1.5 rounded-lg text-xs font-black border outline-none cursor-pointer flex items-center gap-2 shadow-sm bg-[var(--bg-primary)] text-[var(--text-primary)]"
+                    className="pl-3 pr-7 py-1.5 rounded-xl text-xs font-black border outline-none cursor-pointer flex items-center gap-2 shadow-sm bg-[var(--bg-primary)] text-[var(--text-primary)]"
                     style={{ borderColor: 'var(--border-secondary)' }}
                   >
                     <span>{activeEndpoint?.name || "Select Path"}</span>
@@ -1473,7 +1468,7 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
                               <span className="text-[9px] px-1.5 py-0.5 rounded font-black bg-black/20 text-[var(--text-secondary)]">{e.responseStatus}</span>
                             </div>
                             <span className="text-[10px] font-mono opacity-65 truncate text-[var(--text-secondary)]">
-                              /catch{e.customPath ? `/${e.customPath}` : (e.id === 'default' ? '' : `/${e.id}`)}
+                              /catch{e.customPath ? `/${e.customPath.replace(/^\/+/, '')}` : (e.id === 'default' ? '' : `/${e.id}`)}
                             </span>
                           </button>
                         ))}
@@ -1483,24 +1478,25 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
                 </div>
 
                 {/* Direct Path Input */}
-                <div className="flex items-center gap-1 bg-[var(--bg-primary)] px-2 py-1 rounded-lg border flex-1 min-w-[200px]" style={{ borderColor: 'var(--border-secondary)' }}>
+                <div className="flex items-center gap-1 bg-[var(--bg-primary)] px-2.5 py-1.5 rounded-xl border min-w-[180px]" style={{ borderColor: 'var(--border-secondary)' }}>
                   <span className="text-[10px] font-mono opacity-60 text-[var(--text-tertiary)] shrink-0">/catch/</span>
                   <input
                     type="text"
-                    placeholder="custom-path-slug"
-                    value={editCustomPath}
+                    placeholder="custom-path"
+                    value={editCustomPath.replace(/^\/+/, '')}
                     onChange={(e) => {
-                      setEditCustomPath(e.target.value);
-                      handleQuickUpdateEndpointField('customPath', e.target.value);
+                      const cleanVal = e.target.value.trim().replace(/^\/+/, '');
+                      setEditCustomPath(cleanVal);
+                      handleQuickUpdateEndpointField('customPath', cleanVal);
                     }}
                     className="w-full bg-transparent font-mono text-xs font-bold outline-none text-[var(--text-primary)]"
-                    title="Manually type or change API Endpoint Path slug"
+                    title="API Endpoint Path slug"
                   />
                 </div>
 
                 <button
                   onClick={() => setIsConfiguringEndpoint(true)}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors shadow-sm bg-[var(--bg-primary)] hover:bg-black/5 cursor-pointer text-[var(--text-secondary)]"
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors shadow-sm bg-[var(--bg-primary)] hover:bg-black/5 cursor-pointer text-[var(--text-secondary)]"
                   style={{ borderColor: 'var(--border-secondary)' }}
                   title="Configure response status, delay, chaos settings"
                 >
@@ -1509,33 +1505,34 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
 
                 <button
                   onClick={handleCreateEndpoint}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold border border-dashed hover:bg-black/5 transition-colors cursor-pointer text-[var(--text-secondary)]"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-dashed hover:bg-black/5 transition-colors cursor-pointer text-[var(--text-secondary)]"
                   style={{ borderColor: 'var(--border-secondary)' }}
                 >
                   <Plus size={13} /> Add Path
                 </button>
               </div>
 
-              {/* Manual Endpoint Key / Signing Secret Input */}
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="text-xs font-bold text-[var(--text-secondary)] flex items-center gap-1">
-                  <Key size={13} className="text-amber-400" /> Endpoint Key:
+              {/* Right Group: Endpoint Key / Signing Secret Input (Single clean source of truth!) */}
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-xs font-bold text-[var(--text-secondary)] shrink-0 flex items-center gap-1">
+                  <Key size={13} className="text-amber-400" /> Signing Key:
                 </span>
-                <div className="flex items-center gap-1 bg-[var(--bg-primary)] px-2 py-1 rounded-lg border" style={{ borderColor: 'var(--border-secondary)' }}>
+                <div className="flex items-center gap-1 bg-[var(--bg-primary)] px-2.5 py-1 rounded-xl border flex-1 min-w-[260px]" style={{ borderColor: 'var(--border-secondary)' }}>
                   <input
                     type={showSecretKey ? "text" : "password"}
-                    placeholder="Manual Signing Secret (whsec_...)"
+                    placeholder="whsec_..."
                     value={editSecretKey}
                     onChange={(e) => {
-                      setEditSecretKey(e.target.value);
-                      handleQuickUpdateEndpointField('secretKey', e.target.value);
+                      const val = e.target.value.trim();
+                      setEditSecretKey(val);
+                      handleQuickUpdateEndpointField('secretKey', val);
                     }}
-                    className="w-44 bg-transparent font-mono text-xs font-bold outline-none text-[var(--text-primary)]"
-                    title="Enter Webhook Signing Secret Key for HMAC signature validation"
+                    className="w-full bg-transparent font-mono text-xs font-bold outline-none text-[var(--text-primary)]"
+                    title="Webhook Signing Secret Key (Orbit-Signature HMAC validation)"
                   />
                   <button
                     onClick={() => setShowSecretKey(!showSecretKey)}
-                    className="p-1 hover:bg-black/10 rounded text-[var(--text-tertiary)] cursor-pointer"
+                    className="p-1 hover:bg-black/10 rounded text-[var(--text-tertiary)] cursor-pointer shrink-0"
                     title={showSecretKey ? "Hide secret" : "Show secret"}
                   >
                     {showSecretKey ? <EyeOff size={12} /> : <Eye size={12} />}
@@ -1543,19 +1540,19 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
                   {editSecretKey && (
                     <button
                       onClick={() => {
-                        handleCopyText(editSecretKey, "Endpoint Key copied!");
+                        handleCopyText(editSecretKey, "Signing key copied!");
                         setCopiedKeyId(activeEndpointId);
                         setTimeout(() => setCopiedKeyId(null), 1500);
                       }}
-                      className="p-1 hover:bg-black/10 rounded text-[var(--text-tertiary)] cursor-pointer"
-                      title="Copy Endpoint Key"
+                      className="p-1 hover:bg-black/10 rounded text-[var(--text-tertiary)] cursor-pointer shrink-0"
+                      title="Copy Signing Key"
                     >
                       {copiedKeyId === activeEndpointId ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
                     </button>
                   )}
                   <button
                     onClick={generateRandomEndpointKey}
-                    className="p-1 hover:bg-black/10 rounded text-amber-400 cursor-pointer"
+                    className="p-1 hover:bg-black/10 rounded text-amber-400 cursor-pointer shrink-0"
                     title="Generate random secret key"
                   >
                     <Zap size={12} />
