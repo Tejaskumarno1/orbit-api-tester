@@ -197,13 +197,22 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onToast }) =
     } catch (e) {}
   };
 
-  // Switch modes or initialize
+  // Switch modes or initialize with auto-polling fallback
   useEffect(() => {
+    let intervalId: any;
     if (mode === "listener") {
       fetchEndpoints();
       fetchHistory();
       fetchTunnelStatus();
+      
+      // Auto-poll history every 3s as fallback for serverless environments (Vercel)
+      intervalId = setInterval(() => {
+        fetchHistory();
+      }, 3000);
     }
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
   }, [mode]);
 
   // Sync edits when active endpoint changes
