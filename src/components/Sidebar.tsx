@@ -100,7 +100,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               body: JSON.stringify({
                 url: `${baseUrl}/ext/projects`,
                 method: "GET",
-                headers: { "Authorization": `Bearer ${apiKey}` }
+                headers: { "Authorization": `Bearer ${apiKey.trim()}` }
               })
             });
             const projJson = await projRes.json();
@@ -117,11 +117,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         }
 
       } else {
-        setIdentity({ error: "Invalid API Key or unauthorized." });
+        const errorDetail = typeof proxyData.data === 'string' 
+          ? (proxyData.data.includes('challenge-error-text') ? "Cloudflare Turnstile challenge received" : proxyData.data.slice(0, 80))
+          : (proxyData.data?.message || proxyData.data?.error || `Status ${proxyData.status}: Invalid API Key or unauthorized`);
+        setIdentity({ error: errorDetail });
         setOrgProjects(null);
       }
-    } catch (e) {
-      setIdentity({ error: "Network Error." });
+    } catch (e: any) {
+      setIdentity({ error: `Network Error: ${e.message || String(e)}` });
       setOrgProjects(null);
     }
     setIsValidatingKey(false);
