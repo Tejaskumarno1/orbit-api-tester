@@ -76,52 +76,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (!apiKey) return;
     setIsValidatingKey(true);
     try {
-      let whoamiData: any = null;
-      let isSuccess = false;
+      const res = await fetch("/api/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: `${baseUrl}/ext/whoami`,
+          method: "GET",
+          headers: { "Authorization": `Bearer ${apiKey}` }
+        })
+      });
+      const proxyData = await res.json();
 
-      // Try proxy first
-      try {
-        const res = await fetch("/api/proxy", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            url: `${baseUrl}/ext/whoami`,
-            method: "GET",
-            headers: { "Authorization": `Bearer ${apiKey}` }
-          })
-        });
-        const proxyData = await res.json();
-        if (proxyData.status >= 200 && proxyData.status < 300 && proxyData.data) {
-          whoamiData = proxyData.data;
-          isSuccess = true;
-        }
-      } catch (e) {}
-
-      // Fallback to direct browser request if proxy failed or was blocked by Cloudflare WAF
-      if (!isSuccess) {
-        try {
-          const directRes = await fetch(`${baseUrl}/ext/whoami`, {
-            method: "GET",
-            headers: { 
-              "Authorization": `Bearer ${apiKey}`,
-              "Accept": "application/json" 
-            }
-          });
-          if (directRes.ok) {
-            const directJson = await directRes.json();
-            whoamiData = directJson.data || directJson;
-            isSuccess = true;
-          }
-        } catch (e) {}
-      }
-      
-      if (isSuccess && whoamiData) {
+      if (proxyData.status >= 200 && proxyData.status < 300 && proxyData.data) {
+        const whoamiData = proxyData.data?.data || proxyData.data;
         setIdentity(whoamiData);
         
         // Fetch projects if valid key
         if (!whoamiData.project_id) {
           try {
-            let projDataObj: any = null;
             const projRes = await fetch("/api/proxy", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -133,20 +105,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             });
             const projJson = await projRes.json();
             if (projJson.status >= 200 && projJson.status < 300 && projJson.data?.data) {
-              projDataObj = projJson.data.data;
+              setOrgProjects(projJson.data.data);
             } else {
-              // Direct fallback for projects
-              const directProjRes = await fetch(`${baseUrl}/ext/projects`, {
-                method: "GET",
-                headers: { "Authorization": `Bearer ${apiKey}`, "Accept": "application/json" }
-              });
-              if (directProjRes.ok) {
-                const directProjJson = await directProjRes.json();
-                projDataObj = directProjJson.data || directProjJson;
-              }
+              setOrgProjects([]);
             }
-
-            setOrgProjects(Array.isArray(projDataObj) ? projDataObj : []);
           } catch (e) {
             setOrgProjects([]);
           }

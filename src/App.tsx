@@ -589,54 +589,18 @@ export default function App() {
     }
 
     try {
-      let proxyResponse: Response | null = null;
-      let resJson: any = null;
-
-      try {
-        proxyResponse = await fetch("/api/proxy", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            url: preparedUrl,
-            method: targetTab.method,
-            headers: preparedHeaders,
-            body: ["POST", "PUT", "PATCH", "DELETE"].includes(targetTab.method) && preparedBody ? preparedBody : undefined,
-          }),
-        });
-
-        if (proxyResponse.ok) {
-          resJson = await proxyResponse.json();
-          // If Cloudflare WAF intercepted the proxy request with 403 Turnstile challenge, trigger direct fallback
-          if (resJson?.status === 403 && typeof resJson?.data === 'string' && resJson.data.includes('challenge-error-text')) {
-            resJson = null;
-          }
-        }
-      } catch (e) {
-        resJson = null;
-      }
-
-      // Fallback: Direct browser fetch if proxy failed or was blocked by Cloudflare WAF
-      if (!resJson) {
-        const directRes = await fetch(preparedUrl, {
+      const proxyResponse = await fetch("/api/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: preparedUrl,
           method: targetTab.method,
           headers: preparedHeaders,
           body: ["POST", "PUT", "PATCH", "DELETE"].includes(targetTab.method) && preparedBody ? preparedBody : undefined,
-        });
+        }),
+      });
 
-        const textResp = await directRes.text();
-        let parsedData: any;
-        try { parsedData = JSON.parse(textResp); } catch { parsedData = textResp; }
-
-        const resHeaders: Record<string, string> = {};
-        directRes.headers.forEach((value, key) => { resHeaders[key] = value; });
-
-        resJson = {
-          status: directRes.status,
-          statusText: directRes.statusText,
-          headers: resHeaders,
-          data: parsedData,
-        };
-      }
+      const resJson = await proxyResponse.json();
 
       const endTime = performance.now();
       const duration = Math.round(endTime - startTime);
