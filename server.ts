@@ -23,8 +23,9 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  const listenPort = Number(PORT);
+  app.listen(listenPort, "0.0.0.0", () => {
+    console.log(`Server running on http://0.0.0.0:${listenPort}`);
   });
 }
 
